@@ -5,13 +5,13 @@
 
 ## 1. 概要
 REST API (`/api/v1/todos`) + MySQL `todos` テーブル + Next.js のクライアントコンポーネント。
-ブラウザは同一オリジン `/api/*` を叩き、Next.js の rewrites でバックエンドへ転送する (CORS 不要)。
+ブラウザは同一オリジン `/api/*` を叩き、Next.js の Route Handler (`app/api/[...path]/route.ts`) が実行時の `API_ORIGIN` へ転送する (CORS 不要、イメージは環境非依存)。
 
 ## 3. API 設計
 `docs/api/openapi.yaml` 参照。
 
 ## 4. DB 設計
-`backend/migrations/20260101000000_create_todos.sql`。`created_at` にインデックス。
+`backend/migrations/20260101000000_create_todos.sql`。主キー UUID v7 / BINARY(16)、一覧は主キーの keyset ページネーション。
 
 ## 5. バックエンド
 - `domain/todo.rs`: タイトル正規化 (trim, 1〜255 文字)
@@ -29,4 +29,4 @@ REST API (`/api/v1/todos`) + MySQL `todos` テーブル + Next.js のクライ�
 | AC-3 | `title_length_boundary` | | | | |
 | AC-4 | | `todo_crud_flow` | `update_partial_fields` | `todo.spec.ts` (reload) | `todos.js` |
 | AC-5 | | `todo_crud_flow` | `update_and_delete_missing` | `todo.spec.ts` | `todos.js` |
-| AC-6 | | | `list_pagination` | | |
+| AC-6 | `next_cursor_is_set_only_when_more_rows_exist` | `list_paginates_with_cursor_newest_first`, `もっと見る` | `list_pagination` | | |

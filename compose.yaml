@@ -34,10 +34,9 @@ services:
 
   frontend:
     image: voiler-frontend:local
-    build:
-      context: ./frontend
-      args:
-        API_ORIGIN: http://backend:8080
+    build: ./frontend
+    environment:
+      API_ORIGIN: http://backend:8080 # 実行時に解決 (イメージは環境非依存)
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:

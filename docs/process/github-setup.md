@@ -22,7 +22,7 @@
 ## 3. Environments (Settings → Environments)
 - `staging`: main への merge で自動デプロイ
 - `production`: `v*` タグで起動。**Required reviewers** を設定して手動承認にする
-- Variables: `API_ORIGIN` (frontend からの backend 到達先。既定 `http://backend:8080`)
+- frontend コンテナの実行時環境変数 `API_ORIGIN` に backend の到達先を設定する (イメージは全環境共通)
 
 ## 4. パッケージ
 CD は `ghcr.io/<owner>/<repo>/{backend,frontend}` にイメージを push する。

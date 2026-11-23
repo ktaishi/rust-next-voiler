@@ -3,7 +3,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
-    domain::{NewTodo, Todo, TodoPatch},
+    domain::{NewTodo, Page, Todo, TodoPatch},
     error::{AppError, AppResult},
     extract::{Json as JsonBody, Path, Query},
     state::AppState,
@@ -15,16 +15,16 @@ const MAX_LIMIT: u32 = 100;
 #[derive(Debug, Deserialize)]
 pub struct ListParams {
     pub limit: Option<u32>,
-    pub offset: Option<u32>,
+    /// 前ページの `nextCursor`
+    pub cursor: Option<Uuid>,
 }
 
 pub async fn list(
     State(state): State<AppState>,
     Query(p): Query<ListParams>,
-) -> AppResult<Json<Vec<Todo>>> {
+) -> AppResult<Json<Page<Todo>>> {
     let limit = p.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
-    let offset = p.offset.unwrap_or(0);
-    Ok(Json(state.todos.list(limit, offset).await?))
+    Ok(Json(state.todos.list(limit, p.cursor).await?))
 }
 
 pub async fn get(State(state): State<AppState>, Path(id): Path<Uuid>) -> AppResult<Json<Todo>> {

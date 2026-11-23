@@ -25,20 +25,20 @@ describe("TodoApp", () => {
   });
 
   it("一覧を表示する", async () => {
-    fetchMock.mockResolvedValueOnce(json([todo()]));
+    fetchMock.mockResolvedValueOnce(json({ items: [todo()], nextCursor: null }));
     render(<TodoApp />);
     expect(await screen.findByText("牛乳を買う")).toBeInTheDocument();
   });
 
   it("空のときはメッセージを表示する", async () => {
-    fetchMock.mockResolvedValueOnce(json([]));
+    fetchMock.mockResolvedValueOnce(json({ items: [], nextCursor: null }));
     render(<TodoApp />);
     expect(await screen.findByText("タスクはありません")).toBeInTheDocument();
   });
 
   it("タスクを追加できる", async () => {
     fetchMock
-      .mockResolvedValueOnce(json([]))
+      .mockResolvedValueOnce(json({ items: [], nextCursor: null }))
       .mockResolvedValueOnce(json(todo({ title: "新規" }), 201));
     render(<TodoApp />);
     await screen.findByText("タスクはありません");
@@ -49,6 +49,24 @@ describe("TodoApp", () => {
       "/api/v1/todos",
       expect.objectContaining({ method: "POST", body: JSON.stringify({ title: "新規" }) }),
     );
+  });
+
+  it("nextCursor があれば「もっと見る」で次ページを追記する", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json({ items: [todo({ title: "1件目" })], nextCursor: "c1" }))
+      .mockResolvedValueOnce(
+        json({ items: [todo({ id: "2", title: "2件目" })], nextCursor: null }),
+      );
+    render(<TodoApp />);
+    await screen.findByText("1件目");
+    await userEvent.click(screen.getByRole("button", { name: "もっと見る" }));
+    expect(await screen.findByText("2件目")).toBeInTheDocument();
+    expect(screen.getByText("1件目")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/v1/todos?limit=20&cursor=c1",
+      expect.anything(),
+    );
+    expect(screen.queryByRole("button", { name: "もっと見る" })).not.toBeInTheDocument();
   });
 
   it("API エラーを表示する", async () => {

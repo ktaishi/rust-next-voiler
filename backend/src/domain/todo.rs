@@ -6,7 +6,7 @@ use crate::error::AppError;
 
 pub const TITLE_MAX_LEN: usize = 255;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct Todo {
     pub id: Uuid,

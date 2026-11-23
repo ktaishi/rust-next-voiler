@@ -18,16 +18,23 @@ paths:
         "503": { description: Unavailable }
   /api/v1/todos:
     get:
-      summary: Todo 一覧 (作成日時の降順)
+      summary: Todo 一覧 (新しい順, カーソルページネーション)
+      description: |
+        keyset ページネーション。2 ページ目以降はレスポンスの `nextCursor` を `cursor` に渡す。
+        `nextCursor` が null なら最終ページ。OFFSET 方式は提供しない (深いページで遅くなるため)。
       parameters:
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
-        - { name: offset, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - name: cursor
+          in: query
+          description: 前ページの nextCursor (不透明な値として扱うこと)
+          schema: { type: string, format: uuid }
       responses:
         "200":
           description: OK
           content:
             application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/Todo" } }
+              schema: { $ref: "#/components/schemas/TodoPage" }
+        "400": { $ref: "#/components/responses/BadRequest" }
     post:
       summary: Todo 作成
       requestBody:
@@ -81,11 +88,17 @@ components:
       type: object
       required: [id, title, completed, createdAt, updatedAt]
       properties:
-        id: { type: string, format: uuid }
+        id: { type: string, format: uuid, description: UUID v7 (時刻順) }
         title: { type: string, minLength: 1, maxLength: 255 }
         completed: { type: boolean }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    TodoPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items: { type: array, items: { $ref: "#/components/schemas/Todo" } }
+        nextCursor: { type: [string, "null"], format: uuid }
     NewTodo:
       type: object
       required: [title]
@@ -101,7 +114,7 @@ components:
       type: object
       required: [code, message]
       properties:
-        code: { type: string, enum: [VALIDATION_ERROR, NOT_FOUND, INTERNAL_ERROR] }
+        code: { type: string, enum: [VALIDATION_ERROR, NOT_FOUND, INTERNAL_ERROR, BAD_GATEWAY] }
         message: { type: string }
   responses:
     BadRequest:

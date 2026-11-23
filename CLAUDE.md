@@ -40,10 +40,14 @@ docs/       要件・設計・ADR・OpenAPI・テンプレート
 ### Backend
 - エラーは `AppError` に集約し、HTTP 変換は `error.rs` のみ。`unwrap()` はテスト以外禁止
 - 入力抽出は `crate::extract::{Json, Path, Query}` を使う (エラー形式統一のため)
-- SQL は repository 層のみ。`sqlx::query_as` + Row 構造体 (ビルド時 DB 不要)
+- SQL は repository 層のみ。`sqlx::query_as` + `FromRow` (ビルド時 DB 不要)
+- 主キーは UUID v7 (`Uuid::now_v7()`) を `BINARY(16)` で保存。v4 / `CHAR(36)` は使わない
+- 一覧 API は keyset (cursor) ページネーション。OFFSET は使わない
+- テスト用の実装 (InMemory 等) は `tests/common/` に置き、本番コードに含めない
 - `cargo clippy -D warnings` が通ること
 ### Frontend
-- API 呼び出しは `src/lib/api.ts` 経由のみ
+- API 呼び出しは `src/lib/api.ts` 経由のみ。ブラウザ → `/api/*` (Route Handler `src/lib/proxy.ts`) → backend
+- backend の到達先は実行時環境変数 `API_ORIGIN`。ビルド時に URL を焼き込まない
 - アクセシビリティ: テストは `getByRole` / `getByLabelText` で書ける UI にする
 - Next.js 16 は破壊的変更あり。API は `frontend/node_modules/next/dist/docs/` を確認 (frontend/AGENTS.md)
 

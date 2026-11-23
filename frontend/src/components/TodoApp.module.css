@@ -45,3 +45,9 @@
 .error {
   color: #d33;
 }
+.more {
+  display: block;
+  margin: 16px auto 0;
+  padding: 8px 16px;
+  cursor: pointer;
+}

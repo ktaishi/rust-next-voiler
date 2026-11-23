@@ -5,19 +5,36 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api, type Todo } from "@/lib/api";
 import styles from "./TodoApp.module.css";
 
+const PAGE_SIZE = 20;
+
 export function TodoApp() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
 
   useEffect(() => {
     api
-      .listTodos()
-      .then(setTodos)
+      .listTodos({ limit: PAGE_SIZE })
+      .then((page) => {
+        setTodos(page.items);
+        setNextCursor(page.nextCursor);
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  async function loadMore() {
+    if (!nextCursor) return;
+    try {
+      const page = await api.listTodos({ limit: PAGE_SIZE, cursor: nextCursor });
+      setTodos((prev) => [...prev, ...page.items]);
+      setNextCursor(page.nextCursor);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -87,6 +104,11 @@ export function TodoApp() {
             </li>
           ))}
         </ul>
+      )}
+      {nextCursor && (
+        <button type="button" className={styles.more} onClick={loadMore}>
+          もっと見る
+        </button>
       )}
     </section>
   );

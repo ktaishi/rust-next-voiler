@@ -58,7 +58,7 @@ async fn update_partial_fields(pool: MySqlPool) {
 #[sqlx::test(migrations = "./migrations")]
 async fn update_and_delete_missing(pool: MySqlPool) {
     let repo = MySqlTodoRepository::new(pool);
-    let id = Uuid::new_v4();
+    let id = Uuid::now_v7();
     assert!(repo
         .update(
             id,
@@ -83,6 +83,23 @@ async fn list_pagination(pool: MySqlPool) {
         .await
         .unwrap();
     }
-    assert_eq!(repo.list(2, 0).await.unwrap().len(), 2);
-    assert_eq!(repo.list(10, 4).await.unwrap().len(), 1);
+    let p1 = repo.list(2, None).await.unwrap();
+    assert_eq!(
+        p1.items
+            .iter()
+            .map(|t| t.title.as_str())
+            .collect::<Vec<_>>(),
+        ["t4", "t3"]
+    );
+    let p2 = repo.list(2, p1.next_cursor).await.unwrap();
+    assert_eq!(
+        p2.items
+            .iter()
+            .map(|t| t.title.as_str())
+            .collect::<Vec<_>>(),
+        ["t2", "t1"]
+    );
+    let p3 = repo.list(2, p2.next_cursor).await.unwrap();
+    assert_eq!(p3.items.len(), 1);
+    assert!(p3.next_cursor.is_none());
 }

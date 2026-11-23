@@ -2,12 +2,15 @@
 
 use std::sync::Arc;
 
-use api::{repository::InMemoryTodoRepository, routes, state::AppState};
+mod common;
+
+use api::{routes, state::AppState};
 use axum::{
     body::Body,
     http::{Request, StatusCode},
     Router,
 };
+use common::InMemoryTodoRepository;
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -65,7 +68,8 @@ async fn todo_crud_flow() {
 
     let (s, list) = send(&app, "GET", "/api/v1/todos", None).await;
     assert_eq!(s, StatusCode::OK);
-    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list["items"].as_array().unwrap().len(), 1);
+    assert!(list["nextCursor"].is_null());
 
     let (s, updated) = send(
         &app,
@@ -116,4 +120,57 @@ async fn malformed_json_is_bad_request() {
         .unwrap();
     let res = app.oneshot(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn list_paginates_with_cursor_newest_first() {
+    let app = app();
+    for i in 0..5 {
+        send(
+            &app,
+            "POST",
+            "/api/v1/todos",
+            Some(json!({ "title": format!("t{i}") })),
+        )
+        .await;
+    }
+
+    let (_, p1) = send(&app, "GET", "/api/v1/todos?limit=2", None).await;
+    let titles = |p: &Value| -> Vec<String> {
+        p["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["title"].as_str().unwrap().into())
+            .collect()
+    };
+    assert_eq!(titles(&p1), ["t4", "t3"]);
+
+    let cursor = p1["nextCursor"].as_str().unwrap();
+    let (_, p2) = send(
+        &app,
+        "GET",
+        &format!("/api/v1/todos?limit=2&cursor={cursor}"),
+        None,
+    )
+    .await;
+    assert_eq!(titles(&p2), ["t2", "t1"]);
+
+    let cursor = p2["nextCursor"].as_str().unwrap();
+    let (_, p3) = send(
+        &app,
+        "GET",
+        &format!("/api/v1/todos?limit=2&cursor={cursor}"),
+        None,
+    )
+    .await;
+    assert_eq!(titles(&p3), ["t0"]);
+    assert!(p3["nextCursor"].is_null());
+}
+
+#[tokio::test]
+async fn invalid_cursor_is_bad_request() {
+    let (s, err) = send(&app(), "GET", "/api/v1/todos?cursor=xyz", None).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(err["code"], "VALIDATION_ERROR");
 }

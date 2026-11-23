@@ -23,7 +23,7 @@
 | AC-3 | Given タイトルが 256 文字 When 追加 Then 400 (255 文字は成功) | Must |
 | AC-4 | Given Todo が存在 When チェックを切替 Then 完了状態が保存され、再読込後も保持 | Must |
 | AC-5 | Given Todo が存在 When 削除 Then 一覧から消え、取得 API は 404 | Must |
-| AC-6 | 一覧は作成日時の降順、limit は 1〜100 (既定 50) | Should |
+| AC-6 | 一覧は新しい順、limit は 1〜100 (既定 50)。`nextCursor` で次ページを取得でき、最終ページでは null | Should |
 
 ## 5. 非機能要件
 | 区分 | 要件 |

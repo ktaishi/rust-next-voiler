@@ -8,6 +8,8 @@ export type Todo = {
   updatedAt: string;
 };
 
+export type Page<T> = { items: T[]; nextCursor: string | null };
+
 export type ApiErrorBody = { code: string; message: string };
 
 export class ApiError extends Error {
@@ -34,7 +36,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  listTodos: () => request<Todo[]>("/todos"),
+  listTodos: (params: { limit?: number; cursor?: string | null } = {}) => {
+    const q = new URLSearchParams();
+    if (params.limit) q.set("limit", String(params.limit));
+    if (params.cursor) q.set("cursor", params.cursor);
+    const qs = q.toString();
+    return request<Page<Todo>>(`/todos${qs ? `?${qs}` : ""}`);
+  },
   createTodo: (title: string) =>
     request<Todo>("/todos", { method: "POST", body: JSON.stringify({ title }) }),
   updateTodo: (id: string, patch: Partial<Pick<Todo, "title" | "completed">>) =>

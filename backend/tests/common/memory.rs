@@ -1,30 +1,32 @@
-use std::{collections::HashMap, sync::Mutex};
+use std::{collections::BTreeMap, sync::Mutex};
 
+use api::{
+    domain::{NewTodo, Page, Todo, TodoPatch},
+    error::AppResult,
+    repository::TodoRepository,
+};
 use async_trait::async_trait;
 use chrono::Utc;
 use uuid::Uuid;
 
-use super::TodoRepository;
-use crate::{
-    domain::{NewTodo, Todo, TodoPatch},
-    error::AppResult,
-};
-
-/// テスト・ローカル検証用のインメモリ実装。
+/// HTTP 層テスト用のインメモリ実装。UUID v7 の順序 = 作成順を BTreeMap で再現する。
 #[derive(Default)]
 pub struct InMemoryTodoRepository {
-    items: Mutex<HashMap<Uuid, Todo>>,
+    items: Mutex<BTreeMap<Uuid, Todo>>,
 }
 
 #[async_trait]
 impl TodoRepository for InMemoryTodoRepository {
-    async fn list(&self, limit: u32, offset: u32) -> AppResult<Vec<Todo>> {
-        let mut v: Vec<Todo> = self.items.lock().unwrap().values().cloned().collect();
-        v.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(a.id.cmp(&b.id)));
-        Ok(v.into_iter()
-            .skip(offset as usize)
-            .take(limit as usize)
-            .collect())
+    async fn list(&self, limit: u32, cursor: Option<Uuid>) -> AppResult<Page<Todo>> {
+        let items = self.items.lock().unwrap();
+        let rows: Vec<Todo> = items
+            .values()
+            .rev()
+            .filter(|t| cursor.is_none_or(|c| t.id < c))
+            .take(limit as usize + 1)
+            .cloned()
+            .collect();
+        Ok(Page::from_overfetch(rows, limit as usize, |t| t.id))
     }
 
     async fn get(&self, id: Uuid) -> AppResult<Option<Todo>> {
@@ -34,7 +36,7 @@ impl TodoRepository for InMemoryTodoRepository {
     async fn create(&self, input: NewTodo) -> AppResult<Todo> {
         let now = Utc::now();
         let todo = Todo {
-            id: Uuid::new_v4(),
+            id: Uuid::now_v7(),
             title: input.title,
             completed: false,
             created_at: now,
