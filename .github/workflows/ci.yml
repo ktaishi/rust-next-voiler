@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  backend:
+    name: backend (fmt / clippy / unit / integration)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: app
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s --health-timeout=3s --health-retries=30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: unit tests
+        run: cargo test
+      - name: integration tests (MySQL)
+        run: cargo test --features integration
+        env:
+          DATABASE_URL: mysql://root:root@127.0.0.1:3306/app
+
+  frontend:
+    name: frontend (lint / typecheck / unit / build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    name: e2e + load smoke (docker compose)
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: start stack
+        run: docker compose up -d --build --wait --wait-timeout 300
+      - name: wait for readiness
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:8080/readyz && curl -sf -o /dev/null http://localhost:3000/ && exit 0
+            sleep 2
+          done
+          docker compose logs; exit 1
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: install playwright
+        working-directory: frontend
+        run: npm ci && npx playwright install --with-deps chromium
+      - name: e2e
+        working-directory: frontend
+        run: npx playwright test
+      - name: load test (smoke)
+        run: make loadtest PROFILE=smoke
+      - name: dump logs
+        if: failure()
+        run: docker compose logs --no-color > compose.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+            loadtest/results
+            compose.log
+          if-no-files-found: ignore
+          retention-days: 7

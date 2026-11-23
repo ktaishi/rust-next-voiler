@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS todos (
+    id          CHAR(36)     NOT NULL PRIMARY KEY,
+    title       VARCHAR(255) NOT NULL,
+    completed   BOOLEAN      NOT NULL DEFAULT FALSE,
+    created_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    INDEX idx_todos_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

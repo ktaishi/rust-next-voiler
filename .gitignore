@@ -1,0 +1,7 @@
+.env
+.env.local
+backend/target/
+node_modules/
+compose.log
+.DS_Store
+.claude/settings.local.json

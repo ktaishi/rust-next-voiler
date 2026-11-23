@@ -1,0 +1,36 @@
+name: Claude PR review
+
+# PR 作成・更新時に Claude が自動で一次レビューする。
+# 必要: Secrets に CLAUDE_CODE_OAUTH_TOKEN (または ANTHROPIC_API_KEY)、Claude GitHub App のインストール
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+  id-token: write
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            CLAUDE.md と .claude/agents/reviewer.md のチェックリストに従ってこの PR をレビューしてください。
+            関連する docs/features/*/requirements.md と design.md があれば受入条件との整合も確認してください。
+            具体的な問題は行コメントで、総評は 1 件の PR コメントで投稿してください。
+            指摘は [Must|Should|Nit] を付けてください。APPROVE はしないでください。
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob"
