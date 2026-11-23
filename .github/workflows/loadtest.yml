@@ -37,7 +37,7 @@ jobs:
           f=loadtest/results/summary.json
           [ -f "$f" ] || exit 0
           jq -r '"### k6 (\(env.PROFILE))\n| metric | value |\n|---|---|\n| requests | \(.metrics.http_reqs.values.count) |\n| p95 | \(.metrics.http_req_duration.values["p(95)"]) ms |\n| p99 | \(.metrics.http_req_duration.values["p(99)"]) ms |\n| error rate | \(.metrics.http_req_failed.values.rate) |"' "$f" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: k6-${{ env.PROFILE }}
