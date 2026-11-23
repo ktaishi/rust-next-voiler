@@ -5,3 +5,7 @@ node_modules/
 compose.log
 .DS_Store
 .claude/settings.local.json
+deploy/k8s/overlays/*/db.env
+infra/aws/backend.hcl
+.terraform/
+*.tfstate*

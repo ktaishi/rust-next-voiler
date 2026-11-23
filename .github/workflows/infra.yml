@@ -1,0 +1,47 @@
+name: Infra lint
+
+# インフラ定義とデプロイスクリプトの静的検証 (クラウドには接続しない)
+on:
+  pull_request:
+    paths: ["infra/**", "deploy/**", ".github/workflows/infra.yml", ".github/workflows/cd.yml"]
+  push:
+    branches: [main]
+    paths: ["infra/**", "deploy/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        stack: [infra/aws/shared, infra/aws/env]
+    defaults:
+      run:
+        working-directory: ${{ matrix.stack }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.10"
+      - run: terraform fmt -check -recursive -diff
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+
+  kubernetes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: render manifests
+        run: |
+          cp deploy/k8s/overlays/example/db.env.example deploy/k8s/overlays/example/db.env
+          kubectl kustomize deploy/k8s/base > /dev/null
+          kubectl kustomize deploy/k8s/overlays/example > rendered.yaml
+          grep -c '^kind:' rendered.yaml
+
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: shellcheck deploy/aws/*.sh .claude/hooks/*.sh

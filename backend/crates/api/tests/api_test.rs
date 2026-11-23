@@ -174,3 +174,26 @@ async fn invalid_cursor_is_bad_request() {
     assert_eq!(s, StatusCode::BAD_REQUEST);
     assert_eq!(err["code"], "VALIDATION_ERROR");
 }
+
+#[tokio::test]
+async fn healthcheck_client_accepts_running_server() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = axum::serve(listener, app());
+    tokio::spawn(async move { server.await });
+
+    let target = addr.to_string();
+    api::healthcheck::check(&target, std::time::Duration::from_secs(3))
+        .await
+        .unwrap();
+
+    // 何も listen していないポートは unhealthy
+    let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let dead = closed.local_addr().unwrap().to_string();
+    drop(closed);
+    assert!(
+        api::healthcheck::check(&dead, std::time::Duration::from_secs(1))
+            .await
+            .is_err()
+    );
+}

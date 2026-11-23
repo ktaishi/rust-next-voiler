@@ -12,6 +12,8 @@ backend/    Rust workspace
   migrations/    共有マイグレーション
 frontend/   Next.js 16 App Router + TypeScript. Vitest (単体) / Playwright (E2E: e2e/)
 loadtest/   k6 シナリオ。閾値は loadtest/lib/config.js
+deploy/     デプロイ契約 (README.md), k8s (Kustomize), aws/ecs-deploy.sh
+infra/aws/  Terraform (ECS Fargate, RDS, ALB, ECR, Scheduler)
 docs/       要件・設計・ADR・OpenAPI・テンプレート
 .claude/    skills (各フェーズのスラッシュコマンド), agents (reviewer 等), hooks
 .github/    CI/CD, PR テンプレート, Claude レビュー
@@ -41,6 +43,9 @@ docs/       要件・設計・ADR・OpenAPI・テンプレート
 - テストを skip / 削除して green にしない。閾値を緩めるときは理由を PR に書く。
 - main へ直接 push しない。ブランチ `feat/NNNN-slug` → PR → squash merge。
 - 秘密情報をコミットしない (`.env` は gitignore 済み。`.env.example` を更新する)。
+- **クラウド非依存を保つ**: アプリは環境変数・標準出力ログ・ヘルスチェック・`api migrate` 等の「デプロイ契約」(`deploy/README.md`) だけに依存する。
+  特定クラウドの SDK・サービスを使うときは core に trait を切り、実装を差し替え可能にする。新しい環境変数を足したら契約の表と compose / k8s / Terraform を更新する
+- `terraform apply` やクラウドへのデプロイを AI が直接実行しない (CD と人間の承認を経由する)
 
 ## コーディング規約
 ### Backend

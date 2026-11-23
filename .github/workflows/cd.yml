@@ -1,63 +1,139 @@
 name: CD
 
+# ビルドとデプロイを分離する (deploy/README.md の「CD」参照)。
+#
+#   main への push   : イメージをビルドして push (タグ sha-<7桁>) → staging へデプロイ
+#   v* タグの push    : ビルドしない。main でビルド済みの同じイメージを production へデプロイ (昇格)
+#
+# デプロイ先は Repository variable DEPLOY_TARGET で選ぶ:
+#   未設定 / none : GHCR へ push するだけ
+#   aws-ecs       : ECR へ push → deploy/aws/ecs-deploy.sh
+#                   Repository variables: AWS_REGION, AWS_BUILD_ROLE_ARN, ECR_REGISTRY
+#                   Environment variables (staging / production): AWS_DEPLOY_ROLE_ARN, ECS_CLUSTER,
+#                     ECS_NAME_PREFIX, ECS_SUBNETS, ECS_SECURITY_GROUP (infra/aws/env の出力)
+
 on:
   push:
     branches: [main]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: デプロイ先環境
+        type: choice
+        options: [staging, production]
+        default: staging
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET || 'none' }}
 
 jobs:
-  images:
+  meta:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.m.outputs.tag }}
+      registry: ${{ steps.m.outputs.registry }}
+      environment: ${{ steps.m.outputs.environment }}
+      build: ${{ steps.m.outputs.build }}
+    steps:
+      - id: m
+        run: |
+          echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          if [ "$DEPLOY_TARGET" = "aws-ecs" ]; then
+            echo "registry=${{ vars.ECR_REGISTRY }}/${{ vars.PROJECT_NAME || 'voiler' }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "registry=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "environment=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"; echo "build=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "environment=production" >> "$GITHUB_OUTPUT"; echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "environment=staging" >> "$GITHUB_OUTPUT"; echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: meta
+    if: needs.meta.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     strategy:
       matrix:
         service: [backend, frontend]
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+
+      - name: login to GHCR
+        if: env.DEPLOY_TARGET != 'aws-ecs'
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@v5
+
+      - name: configure AWS credentials (OIDC)
+        if: env.DEPLOY_TARGET == 'aws-ecs'
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          images: ghcr.io/${{ github.repository }}/${{ matrix.service }}
-          tags: |
-            type=sha
-            type=ref,event=branch
-            type=semver,pattern={{version}}
+          role-to-assume: ${{ vars.AWS_BUILD_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: login to ECR
+        if: env.DEPLOY_TARGET == 'aws-ecs'
+        uses: aws-actions/amazon-ecr-login@v2
+
       - uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.service }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          tags: ${{ needs.meta.outputs.registry }}/${{ matrix.service }}:${{ needs.meta.outputs.tag }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
-  deploy-staging:
-    needs: images
-    if: github.ref == 'refs/heads/main'
+  deploy:
+    needs: [meta, build]
+    # build がスキップされた (タグ / 手動) 場合もデプロイする
+    if: always() && needs.meta.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') && vars.DEPLOY_TARGET != '' && vars.DEPLOY_TARGET != 'none'
     runs-on: ubuntu-latest
-    environment: staging
+    environment: ${{ needs.meta.outputs.environment }} # production は Required reviewers で承認制にする
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - name: deploy
-        run: |
-          echo "TODO: デプロイ先に合わせて実装 (ECS / Cloud Run / k8s 等)"
-          echo "image tag: sha-${GITHUB_SHA::7}"
+      - uses: actions/checkout@v5
 
-  deploy-production:
-    needs: images
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    environment: production # Settings > Environments で Required reviewers を設定し手動承認にする
-    steps:
-      - name: deploy
+      - name: configure AWS credentials (OIDC)
+        if: env.DEPLOY_TARGET == 'aws-ecs'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: deploy to ECS
+        if: env.DEPLOY_TARGET == 'aws-ecs'
+        env:
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_NAME_PREFIX: ${{ vars.ECS_NAME_PREFIX }}
+          ECS_SUBNETS: ${{ vars.ECS_SUBNETS }}
+          ECS_SECURITY_GROUP: ${{ vars.ECS_SECURITY_GROUP }}
+          BACKEND_IMAGE: ${{ needs.meta.outputs.registry }}/backend:${{ needs.meta.outputs.tag }}
+          FRONTEND_IMAGE: ${{ needs.meta.outputs.registry }}/frontend:${{ needs.meta.outputs.tag }}
+        run: deploy/aws/ecs-deploy.sh
+
+      - name: summary
         run: |
-          echo "TODO: 本番デプロイ (${GITHUB_REF_NAME})"
+          {
+            echo "### Deployed to ${{ needs.meta.outputs.environment }} (${DEPLOY_TARGET})"
+            echo "- image tag: \`${{ needs.meta.outputs.tag }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

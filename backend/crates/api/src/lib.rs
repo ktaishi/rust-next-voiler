@@ -6,6 +6,7 @@ pub mod config;
 pub mod error;
 pub mod extract;
 pub mod handlers;
+pub mod healthcheck;
 pub mod routes;
 pub mod state;
 
@@ -16,8 +17,16 @@ use tokio::net::TcpListener;
 
 use crate::{config::Config, state::AppState};
 
+/// マイグレーションだけを適用する (`api migrate`)。
+pub async fn migrate(config: &Config) -> anyhow::Result<()> {
+    let pool = db::connect(&config.db, 1).await?;
+    db::MIGRATOR.run(&pool).await?;
+    tracing::info!("migrations applied");
+    Ok(())
+}
+
 pub async fn run(config: Config) -> anyhow::Result<()> {
-    let pool = db::connect(&config.database_url, config.db_max_connections).await?;
+    let pool = db::connect(&config.db, config.db_max_connections).await?;
 
     if config.run_migrations {
         db::MIGRATOR.run(&pool).await?;

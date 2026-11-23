@@ -1,0 +1,26 @@
+# 環境ごとの overlay の例。`kubectl apply -k deploy/k8s/overlays/<env>` で適用する。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: voiler
+resources:
+  - ../../base
+images:
+  - name: backend
+    newName: ghcr.io/OWNER/REPO/backend
+    newTag: sha-0000000 # CD で `kustomize edit set image` により書き換える
+  - name: frontend
+    newName: ghcr.io/OWNER/REPO/frontend
+    newTag: sha-0000000
+# DB 接続情報。実運用では External Secrets / Sealed Secrets などで管理し、平文をコミットしない
+secretGenerator:
+  - name: app-db
+    envs:
+      - db.env # .gitignore 済み。db.env.example を参照
+    options:
+      disableNameSuffixHash: true
+patches:
+  - target: { kind: Ingress, name: frontend }
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: app.example.com

@@ -1,0 +1,22 @@
+# デプロイ前に 1 回実行する。Job の spec は不変なので、CD では既存 Job を削除してから apply し、
+# `kubectl wait --for=condition=complete job/migrate` で成功を確認してから Deployment を更新する。
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+        - name: migrate
+          image: backend
+          args: ["migrate"]
+          envFrom:
+            - configMapRef: { name: backend-config }
+            - secretRef: { name: app-db }

@@ -1,0 +1,22 @@
+# Kubernetes 用のベース (EKS / GKE / AKS / オンプレ共通)。
+# 環境ごとの差分 (イメージタグ, レプリカ数, DB 接続先, Ingress ホスト) は overlays/ で上書きする。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: voiler
+    includeSelectors: false
+resources:
+  - configmap.yaml
+  - backend.yaml
+  - frontend.yaml
+  - migrate-job.yaml
+  - batch-cronjob.yaml
+  - ingress.yaml
+images:
+  - name: backend
+    newName: ghcr.io/OWNER/REPO/backend
+    newTag: latest
+  - name: frontend
+    newName: ghcr.io/OWNER/REPO/frontend
+    newTag: latest

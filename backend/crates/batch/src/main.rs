@@ -6,11 +6,10 @@ use clap::{Parser, Subcommand};
 use uuid::Uuid;
 
 /// バッチ処理 CLI。終了コード 0 = 成功, 1 = 失敗 (多重起動・ジョブ失敗を含む)。
+/// DB 接続は環境変数 (DATABASE_URL または DB_HOST/DB_USER/DB_PASSWORD/DB_NAME)。
 #[derive(Parser)]
 #[command(version, about)]
 struct Cli {
-    #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
-    database_url: String,
     /// コネクションプールの上限。seed の --concurrency + 2 以上にする
     #[arg(long, env = "DB_MAX_CONNECTIONS", default_value_t = 10)]
     db_max_connections: u32,
@@ -48,7 +47,8 @@ enum Command {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     app_core::telemetry::init(&cli.log_format);
-    let pool = app_core::db::connect(&cli.database_url, cli.db_max_connections).await?;
+    let db = app_core::db::DbConfig::from_env()?;
+    let pool = app_core::db::connect(&db, cli.db_max_connections).await?;
     let runner = JobRunner::new(pool);
 
     let job: Box<dyn Job> = match cli.command {

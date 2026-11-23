@@ -25,6 +25,7 @@ Claude Code のスキル (スラッシュコマンド) と GitHub Actions で一
 - [バッチ処理](#バッチ処理)
 - [AI 駆動開発フロー](#ai-駆動開発フロー)
 - [テスト戦略](#テスト戦略)
+- [デプロイ (クラウド非依存 / AWS)](#デプロイ-クラウド非依存--aws)
 - [CI/CD](#cicd)
 - [ディレクトリ](#ディレクトリ)
 
@@ -58,6 +59,7 @@ make dev-frontend
 ブラウザは常に **同一オリジン (`:3000`) の `/api/*`** を呼び、Next.js の Route Handler がバックエンドへ転送する。
 転送先は実行時の環境変数 `API_ORIGIN` で決まるので、同じイメージを staging → production へ昇格できる。
 バッチは backend と同じイメージの別バイナリ (`/app/batch`) で、スケジューラから起動する。
+ローカルでも本番と同じく **migrate (1 回実行) → backend (healthy) → frontend** の順に起動する。
 
 ```mermaid
 flowchart LR
@@ -68,6 +70,7 @@ flowchart LR
         direction LR
         FE["frontend<br/>Next.js 16<br/>:3000"]
         BE["backend (api)<br/>Rust / axum<br/>:8080"]
+        MG["migrate<br/>api migrate<br/>(1 回実行)"]
         BA["batch<br/>Rust CLI<br/>(profile: batch)"]
         DB[("mysql<br/>MySQL 8.4<br/>:3306")]
     end
@@ -76,16 +79,17 @@ flowchart LR
     U -- "fetch /api/v1/*" --> FE
     FE -- "Route Handler<br/>→ API_ORIGIN (実行時)" --> BE
     BE -- "sqlx (プール)" --> DB
-    BE -. "起動時に migrate" .-> DB
+    MG -. "スキーマ適用" .-> DB
     S -- "docker compose run batch ..." --> BA
     BA -- "チャンク単位の<br/>トランザクション" --> DB
 ```
 
 | サービス | ポート | 役割 | 依存 |
 |---|---|---|---|
-| `frontend` | 3000 | 画面配信と `/api/*` のプロキシ | backend |
-| `backend` | 8080 | REST API、起動時にマイグレーション適用 | mysql (healthy になってから起動) |
-| `batch` | — | バッチ CLI (`profiles: [batch]`、`docker compose run` で都度起動) | mysql |
+| `frontend` | 3000 | 画面配信と `/api/*` のプロキシ (`/healthz`) | backend (healthy) |
+| `migrate` | — | `api migrate` でマイグレーションを適用して終了 | mysql (healthy) |
+| `backend` | 8080 | REST API (`/app/api healthcheck` でヘルスチェック) | migrate (正常終了) |
+| `batch` | — | バッチ CLI (`profiles: [batch]`、`docker compose run` で都度起動) | migrate (正常終了) |
 | `mysql` | 3306 | 永続化 (`mysql-data` ボリューム) | — |
 
 ## エンドポイント一覧
@@ -95,7 +99,7 @@ flowchart LR
 
 | Method | Path | 説明 | リクエスト | 成功 | エラー |
 |---|---|---|---|---|---|
-| GET | `/healthz` | Liveness (プロセス生存) | — | `200 {"status":"ok"}` | — |
+| GET | `/healthz` | Liveness (プロセス生存)。frontend (:3000) にも同名のエンドポイントあり | — | `200 {"status":"ok"}` | — |
 | GET | `/readyz` | Readiness (DB 疎通) | — | `200 {"status":"ready"}` | `503` |
 | GET | `/api/v1/todos` | 一覧 (新しい順, カーソルページネーション) | query: `limit` 1〜100 (既定 50), `cursor` (前ページの `nextCursor`) | `200 TodoPage` | `400` |
 | POST | `/api/v1/todos` | 作成 | `{"title": string}` | `201 Todo` | `400` |
@@ -248,11 +252,12 @@ sequenceDiagram
     UI-->>U: 一覧から除去
 ```
 
-### 起動シーケンス
+### 起動シーケンス (ローカルも本番も同じ順序)
 ```mermaid
 sequenceDiagram
-    participant C as docker compose
+    participant C as docker compose<br/>(本番: CD / ECS)
     participant DB as mysql
+    participant MG as migrate
     participant BE as backend
     participant FE as frontend
 
@@ -261,13 +266,19 @@ sequenceDiagram
         C->>DB: mysqladmin ping
     end
     DB-->>C: healthy
-    C->>BE: 起動 (depends_on: service_healthy)
-    BE->>DB: コネクションプール作成
-    BE->>DB: sqlx migrate (未適用分のみ)
-    BE-->>BE: :8080 で listen
+    C->>MG: api migrate
+    MG->>DB: 未適用のマイグレーションを適用
+    MG-->>C: exit 0 (失敗なら以降を起動しない)
+    C->>BE: 起動 (RUN_MIGRATIONS=false)
+    loop healthcheck
+        C->>BE: /app/api healthcheck (= GET /healthz)
+    end
+    BE-->>C: healthy
     C->>FE: 起動 (API_ORIGIN=http://backend:8080)
-    FE-->>FE: :3000 で listen
-    Note over BE: SIGTERM で graceful shutdown
+    loop healthcheck
+        C->>FE: GET /healthz
+    end
+    Note over BE,FE: SIGTERM で graceful shutdown
 ```
 
 バッチのシーケンスは [バッチ処理](#バッチ処理) を参照。
@@ -536,6 +547,85 @@ SLO (k6 の閾値、`loadtest/lib/config.js`): **p95 < 200ms / p99 < 500ms / エ
 
 バッチの結合テストは、トリガで DELETE を失敗させる **障害注入** で「チャンク単位の原子性」と「再開」を検証している。
 
+## デプロイ (クラウド非依存 / AWS)
+
+アプリは特定のクラウドに依存せず、次の **デプロイ契約** だけを前提にしている。
+詳細 (環境変数一覧・ヘルスチェック・プラットフォーム対応表): [deploy/README.md](deploy/README.md)
+
+| 契約 | 内容 |
+|---|---|
+| イメージ | `backend` (`/app/api`, `/app/batch`) と `frontend`。タグはコミット SHA、環境間で同じイメージを昇格 |
+| 設定 | すべて環境変数。DB は `DATABASE_URL` または `DB_HOST`/`DB_USER`/`DB_PASSWORD`/`DB_NAME` (パスワードだけをシークレットから注入できる) |
+| ヘルスチェック | backend `/healthz` (liveness)・`/readyz` (readiness)・`api healthcheck` (コンテナ内) / frontend `/healthz` |
+| 一度きりのタスク | `api migrate` (デプロイ前に実行し、成功時のみ更新) |
+| 定期実行 | `batch <job> ...` (終了コード 0 = 成功) |
+| ログ | 標準出力に JSON |
+
+```mermaid
+flowchart TB
+    APP["同じイメージ・同じ環境変数・同じヘルスチェック"]
+    APP --> L["ローカル / 単一 VM<br/>compose.yaml"]
+    APP --> K["Kubernetes (EKS/GKE/AKS)<br/>deploy/k8s (Kustomize)"]
+    APP --> A["AWS ECS Fargate<br/>infra/aws (Terraform)<br/>+ deploy/aws/ecs-deploy.sh"]
+```
+
+### AWS 構成 (`infra/aws/`)
+```mermaid
+flowchart LR
+    U([ユーザー]) --> ALB["ALB (+ ACM)<br/>public subnet"]
+    subgraph vpc["VPC (private subnet × 2 AZ)"]
+        FE["ECS Service<br/>frontend"] -- "Service Connect<br/>http://backend:8080" --> BE["ECS Service<br/>backend"]
+        BE --> RDS[("RDS MySQL 8.4<br/>(prod: Multi-AZ)")]
+        MG["ECS RunTask<br/>api migrate"] --> RDS
+        BT["ECS RunTask<br/>batch"] --> RDS
+    end
+    ALB --> FE
+    SCH["EventBridge Scheduler"] --> BT
+    SM["Secrets Manager"] -. "DB_PASSWORD" .-> BE
+    ECR[("ECR")] -. image .-> FE
+    BE -. "JSON ログ" .-> CW["CloudWatch Logs"]
+    EV["異常終了 / 5xx / DB CPU"] --> SNS["SNS 通知"]
+```
+
+| 契約 | AWS での実装 |
+|---|---|
+| frontend / backend 常駐 | ECS Service (Fargate、CPU 60% でオートスケール、サーキットブレーカーで自動ロールバック) |
+| backend の名前解決 | ECS Service Connect (`API_ORIGIN` は compose と同じ値) |
+| migrate | CD から `RunTask`、終了コード 0 を確認してからサービス更新 |
+| batch | EventBridge Scheduler → `RunTask`。非 0 終了は SNS で通知 |
+| シークレット | Secrets Manager → `DB_PASSWORD` |
+| 認証 (CD) | GitHub OIDC (アクセスキーを保存しない) |
+
+### デプロイの流れ
+```mermaid
+sequenceDiagram
+    autonumber
+    participant GH as GitHub Actions (cd.yml)
+    participant REG as レジストリ<br/>(GHCR / ECR)
+    participant ECS as ECS
+    participant DB as RDS
+
+    Note over GH: main へ merge
+    GH->>REG: backend / frontend を build & push (sha-xxxxxxx)
+    GH->>ECS: タスク定義の新リビジョン登録 (backend, migrate, batch, frontend)
+    GH->>ECS: RunTask: api migrate
+    ECS->>DB: マイグレーション適用
+    ECS-->>GH: exitCode
+    alt exitCode != 0
+        GH-->>GH: 中断 (サービスは旧バージョンのまま)
+    else 成功
+        GH->>ECS: update-service backend → 安定待ち
+        GH->>ECS: update-service frontend → 安定待ち
+        Note over ECS: ヘルスチェック失敗時はサーキットブレーカーが自動ロールバック
+    end
+    Note over GH: v* タグ → 承認 (Required reviewers) → 同じ sha イメージを production へ
+```
+
+| `DEPLOY_TARGET` (Repository variable) | 動作 |
+|---|---|
+| 未設定 / `none` | GHCR へ push のみ |
+| `aws-ecs` | ECR へ push → ECS へデプロイ (設定: [infra/aws/README.md](infra/aws/README.md)) |
+
 ## CI/CD
 
 ```mermaid
@@ -550,9 +640,9 @@ flowchart LR
         F --> E2E
     end
     PR -->|"Approve + green<br/>squash merge"| MAIN["main"]
-    MAIN --> IMG["cd: images<br/>backend(api+batch) / frontend → GHCR"]
-    IMG --> STG["deploy-staging"]
-    TAG["tag v*"] --> IMG2["cd: images"] --> PRD["deploy-production<br/>(Required reviewers)"]
+    MAIN --> IMG["cd: build<br/>backend(api+batch) / frontend<br/>→ GHCR or ECR"]
+    IMG --> STG["cd: deploy staging<br/>(migrate → 更新)"]
+    TAG["tag v*"] --> PRD["cd: deploy production<br/>同じ sha イメージ<br/>(Required reviewers)"]
 ```
 
 | ワークフロー | トリガ | 内容 |
@@ -561,7 +651,8 @@ flowchart LR
 | `claude-review.yml` | PR | Claude による自動一次レビュー |
 | `claude.yml` | `@claude` メンション | Issue/PR 上で Claude が実装・修正 |
 | `loadtest.yml` | 手動 / 毎週 | k6 load/stress/spike。結果を Job Summary に表示 |
-| `cd.yml` | main / `v*` タグ | GHCR へイメージ push → staging / production (承認制) |
+| `cd.yml` | main / `v*` タグ | イメージ push → `DEPLOY_TARGET` に応じて staging / production (承認制) へデプロイ |
+| `infra.yml` | infra / deploy の変更 | `terraform fmt`/`validate`, Kustomize のレンダリング, shellcheck |
 
 初期設定 (ブランチ保護・Secrets など): [docs/process/github-setup.md](docs/process/github-setup.md)
 
@@ -578,6 +669,8 @@ frontend/                Next.js
   src/lib/api.ts         API クライアント (型は openapi.yaml と一致)
   e2e/                   Playwright
 loadtest/                k6 (scenarios/, lib/config.js に SLO 閾値)
+deploy/                  デプロイ契約 (README.md), k8s/ (Kustomize), aws/ecs-deploy.sh
+infra/aws/               Terraform: shared/ (ECR, OIDC), env/ (VPC, ALB, ECS, RDS, Scheduler, 監視)
 docs/                    プロセス, テンプレート, 機能別成果物, ADR, OpenAPI, DB, バッチ運用
 .claude/                 skills (フェーズ別コマンド), agents (reviewer 等), hooks (自動整形), settings
 .github/                 CI/CD, PR/Issue テンプレート, Claude レビュー, dependabot

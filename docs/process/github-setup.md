@@ -21,11 +21,15 @@
 
 ## 3. Environments (Settings → Environments)
 - `staging`: main への merge で自動デプロイ
-- `production`: `v*` タグで起動。**Required reviewers** を設定して手動承認にする
-- frontend コンテナの実行時環境変数 `API_ORIGIN` に backend の到達先を設定する (イメージは全環境共通)
+- `production`: `v*` タグで起動 (main でビルド済みの同じイメージを昇格)。**Required reviewers** を設定して手動承認にする
 
-## 4. パッケージ
-CD は `ghcr.io/<owner>/<repo>/{backend,frontend}` にイメージを push する。
+## 4. デプロイ先 (Repository variable `DEPLOY_TARGET`)
+| 値 | 動作 | 追加設定 |
+|---|---|---|
+| 未設定 / `none` | `ghcr.io/<owner>/<repo>/{backend,frontend}:sha-xxxxxxx` を push するだけ | なし |
+| `aws-ecs` | ECR へ push → ECS へデプロイ | `infra/aws/README.md` の「GitHub の設定」 |
+
+デプロイ契約 (環境変数・ヘルスチェック等) とプラットフォーム別の対応は `deploy/README.md`。
 
 ## 5. CODEOWNERS
 `.github/CODEOWNERS` のレビュアーをチームに合わせて変更する。

@@ -1,0 +1,11 @@
+# backend の非機密設定。DB の接続先・パスワードは Secret "app-db" (overlay で作成) から注入する。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+data:
+  RUN_MIGRATIONS: "false"
+  LOG_FORMAT: json
+  RUST_LOG: info
+  DB_MAX_CONNECTIONS: "20"
+  DB_SSL_MODE: preferred

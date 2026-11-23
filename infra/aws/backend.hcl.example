@@ -1,0 +1,6 @@
+# Terraform state の保存先 (事前に作成した S3 バケット)。backend.hcl にコピーして値を設定する。
+# バケットはバージョニング・暗号化を有効にし、アクセスを管理者に限定すること (DB パスワードを含むため)。
+bucket       = "your-terraform-state-bucket"
+region       = "ap-northeast-1"
+encrypt      = true
+use_lockfile = true # S3 ネイティブロック (Terraform 1.10+)

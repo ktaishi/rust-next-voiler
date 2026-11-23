@@ -1,0 +1,30 @@
+# 定期バッチ。ジョブを増やすときはこのファイルを複製して name / schedule / args を変える。
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: archive-completed
+spec:
+  schedule: "17 18 * * *" # UTC (= 03:17 JST)。オフピークに実行
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid # アプリ側でも GET_LOCK で多重起動を防止している
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0 # 一時エラーはアプリ内で再試行。失敗時は `batch resume` で再開する
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+          containers:
+            - name: batch
+              image: backend
+              command: ["/app/batch"]
+              args: ["archive-completed", "--older-than-days", "30", "--chunk-size", "1000"]
+              envFrom:
+                - configMapRef: { name: backend-config }
+                - secretRef: { name: app-db }
+              env:
+                - { name: DB_MAX_CONNECTIONS, value: "10" }

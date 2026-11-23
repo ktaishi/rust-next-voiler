@@ -1,0 +1,17 @@
+# 外部公開は frontend のみ。ingressClassName / host / TLS は overlay で上書きする
+# (EKS なら AWS Load Balancer Controller の "alb"、GKE なら "gce" など)。
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend
+spec:
+  rules:
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port: { name: http }

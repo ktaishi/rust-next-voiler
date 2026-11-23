@@ -1,5 +1,13 @@
 name: voiler
 
+# 本番と同じ起動順をローカルで再現する:
+#   mysql (healthy) → migrate (1 回実行して正常終了) → backend (healthy) → frontend
+# 各サービスが使う環境変数とヘルスチェックは deploy/README.md の「デプロイ契約」と一致させること。
+
+x-backend-env: &backend-env
+  DATABASE_URL: mysql://${MYSQL_USER:-app}:${MYSQL_PASSWORD:-app}@mysql:3306/${MYSQL_DATABASE:-app}
+  LOG_FORMAT: ${LOG_FORMAT:-pretty}
+
 services:
   mysql:
     image: mysql:8.4
@@ -18,34 +26,49 @@ services:
       timeout: 3s
       retries: 30
 
-  backend:
-    image: voiler-backend:local
-    build: ./backend
+  # デプロイ前の 1 回限りのタスク (本番では ECS RunTask / k8s Job で同じコマンドを実行)
+  migrate:
+    image: voiler-backend:local # backend と同じイメージ (ビルドは backend サービスで 1 回だけ)
+    command: ["migrate"]
     environment:
-      DATABASE_URL: mysql://${MYSQL_USER:-app}:${MYSQL_PASSWORD:-app}@mysql:3306/${MYSQL_DATABASE:-app}
-      RUN_MIGRATIONS: "true"
-      CORS_ALLOWED_ORIGINS: http://localhost:3000
-      RUST_LOG: info,api=debug
-    ports:
-      - "${BACKEND_PORT:-8080}:8080"
+      <<: *backend-env
     depends_on:
       mysql:
         condition: service_healthy
 
+  backend:
+    image: voiler-backend:local
+    build: ./backend
+    environment:
+      <<: *backend-env
+      RUN_MIGRATIONS: "false"
+      CORS_ALLOWED_ORIGINS: http://localhost:3000
+      RUST_LOG: info,api=debug
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "/app/api", "healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   # バッチ: docker compose run --rm batch <job> [args]  (例: archive-completed --older-than-days 30)
   batch:
     image: voiler-backend:local
-    build: ./backend
     profiles: ["batch"]
     entrypoint: ["/app/batch"]
     command: ["status"]
     environment:
-      DATABASE_URL: mysql://${MYSQL_USER:-app}:${MYSQL_PASSWORD:-app}@mysql:3306/${MYSQL_DATABASE:-app}
+      <<: *backend-env
       DB_MAX_CONNECTIONS: "10"
       RUST_LOG: info,batch=debug
     depends_on:
-      mysql:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   frontend:
     image: voiler-frontend:local
@@ -54,8 +77,15 @@ services:
       API_ORIGIN: http://backend:8080 # 実行時に解決 (イメージは環境非依存)
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   mysql-data:
