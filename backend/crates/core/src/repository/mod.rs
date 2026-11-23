@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::{
     domain::{NewTodo, Page, Todo, TodoPatch},
-    error::AppResult,
+    AppResult,
 };
 
 pub use mysql::MySqlTodoRepository;

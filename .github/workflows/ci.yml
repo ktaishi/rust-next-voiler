@@ -42,11 +42,11 @@ jobs:
         with:
           workspaces: backend
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: unit tests
-        run: cargo test
-      - name: integration tests (MySQL)
-        run: cargo test --features integration
+        run: cargo test --workspace
+      - name: integration tests (MySQL, api + batch)
+        run: cargo test --workspace --all-features
         env:
           DATABASE_URL: mysql://root:root@127.0.0.1:3306/app
 
@@ -98,6 +98,11 @@ jobs:
         run: npx playwright test
       - name: load test (smoke)
         run: make loadtest PROFILE=smoke
+      - name: batch smoke (container image)
+        run: |
+          docker compose run --rm batch seed --count 20000 --max-age-days 60
+          docker compose run --rm batch archive-completed --older-than-days 30
+          docker compose run --rm batch status
       - name: dump logs
         if: failure()
         run: docker compose logs --no-color > compose.log

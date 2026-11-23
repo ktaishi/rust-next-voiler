@@ -9,3 +9,4 @@
 | `api/openapi.yaml` | API 契約 (単一の真実) |
 | `db/schema.md` | DB 規約とスキーマ概要 |
 | `process/github-setup.md` | ブランチ保護・Secrets 等のリポジトリ初期設定 |
+| `process/batch-operations.md` | バッチの実行・スケジュール・再開・新規ジョブ追加 |

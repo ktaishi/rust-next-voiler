@@ -1,9 +1,9 @@
 use std::{collections::BTreeMap, sync::Mutex};
 
-use api::{
+use app_core::{
     domain::{NewTodo, Page, Todo, TodoPatch},
-    error::AppResult,
     repository::TodoRepository,
+    AppResult,
 };
 use async_trait::async_trait;
 use chrono::Utc;

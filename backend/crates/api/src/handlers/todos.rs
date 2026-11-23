@@ -2,9 +2,13 @@ use axum::{extract::State, http::StatusCode, Json};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::{
+use app_core::{
     domain::{NewTodo, Page, Todo, TodoPatch},
-    error::{AppError, AppResult},
+    AppError,
+};
+
+use crate::{
+    error::ApiResult,
     extract::{Json as JsonBody, Path, Query},
     state::AppState,
 };
@@ -22,24 +26,24 @@ pub struct ListParams {
 pub async fn list(
     State(state): State<AppState>,
     Query(p): Query<ListParams>,
-) -> AppResult<Json<Page<Todo>>> {
+) -> ApiResult<Json<Page<Todo>>> {
     let limit = p.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     Ok(Json(state.todos.list(limit, p.cursor).await?))
 }
 
-pub async fn get(State(state): State<AppState>, Path(id): Path<Uuid>) -> AppResult<Json<Todo>> {
+pub async fn get(State(state): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<Json<Todo>> {
     state
         .todos
         .get(id)
         .await?
         .map(Json)
-        .ok_or(AppError::NotFound)
+        .ok_or(AppError::NotFound.into())
 }
 
 pub async fn create(
     State(state): State<AppState>,
     JsonBody(input): JsonBody<NewTodo>,
-) -> AppResult<(StatusCode, Json<Todo>)> {
+) -> ApiResult<(StatusCode, Json<Todo>)> {
     let todo = state.todos.create(input.validate()?).await?;
     Ok((StatusCode::CREATED, Json(todo)))
 }
@@ -48,19 +52,19 @@ pub async fn update(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     JsonBody(patch): JsonBody<TodoPatch>,
-) -> AppResult<Json<Todo>> {
+) -> ApiResult<Json<Todo>> {
     state
         .todos
         .update(id, patch.validate()?)
         .await?
         .map(Json)
-        .ok_or(AppError::NotFound)
+        .ok_or(AppError::NotFound.into())
 }
 
-pub async fn delete(State(state): State<AppState>, Path(id): Path<Uuid>) -> AppResult<StatusCode> {
+pub async fn delete(State(state): State<AppState>, Path(id): Path<Uuid>) -> ApiResult<StatusCode> {
     if state.todos.delete(id).await? {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err(AppError::NotFound)
+        Err(AppError::NotFound.into())
     }
 }

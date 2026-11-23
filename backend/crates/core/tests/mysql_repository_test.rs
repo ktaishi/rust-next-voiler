@@ -1,16 +1,16 @@
 //! 内部結合テスト: 実 MySQL に対してリポジトリを検証する。
-//! 実行: DATABASE_URL=mysql://root:root@localhost:3306/app cargo test --features integration
+//! 実行: DATABASE_URL=mysql://root:root@localhost:3306/app cargo test --all-features
 //! `#[sqlx::test]` はテストごとに使い捨て DB を作成しマイグレーションを適用する。
 #![cfg(feature = "integration")]
 
-use api::{
+use app_core::{
     domain::{NewTodo, TodoPatch},
     repository::{MySqlTodoRepository, TodoRepository},
 };
 use sqlx::MySqlPool;
 use uuid::Uuid;
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../migrations")]
 async fn create_and_get(pool: MySqlPool) {
     let repo = MySqlTodoRepository::new(pool);
     let created = repo
@@ -24,7 +24,7 @@ async fn create_and_get(pool: MySqlPool) {
     assert!(!fetched.completed);
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../migrations")]
 async fn update_partial_fields(pool: MySqlPool) {
     let repo = MySqlTodoRepository::new(pool);
     let t = repo.create(NewTodo { title: "a".into() }).await.unwrap();
@@ -55,7 +55,7 @@ async fn update_partial_fields(pool: MySqlPool) {
     assert!(same.is_some());
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../migrations")]
 async fn update_and_delete_missing(pool: MySqlPool) {
     let repo = MySqlTodoRepository::new(pool);
     let id = Uuid::now_v7();
@@ -73,7 +73,7 @@ async fn update_and_delete_missing(pool: MySqlPool) {
     assert!(!repo.delete(id).await.unwrap());
 }
 
-#[sqlx::test(migrations = "./migrations")]
+#[sqlx::test(migrations = "../../migrations")]
 async fn list_pagination(pool: MySqlPool) {
     let repo = MySqlTodoRepository::new(pool);
     for i in 0..5 {

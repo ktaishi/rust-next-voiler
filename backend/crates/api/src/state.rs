@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use sqlx::MySqlPool;
 
-use crate::repository::TodoRepository;
+use app_core::repository::TodoRepository;
 
 #[derive(Clone)]
 pub struct AppState {

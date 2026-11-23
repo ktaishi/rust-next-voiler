@@ -1,8 +1,8 @@
-use api::{config::Config, telemetry};
+use api::config::Config;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let config = Config::from_env()?;
-    telemetry::init(&config.log_format);
+    app_core::telemetry::init(&config.log_format);
     api::run(config).await
 }

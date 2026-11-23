@@ -32,6 +32,21 @@ services:
       mysql:
         condition: service_healthy
 
+  # バッチ: docker compose run --rm batch <job> [args]  (例: archive-completed --older-than-days 30)
+  batch:
+    image: voiler-backend:local
+    build: ./backend
+    profiles: ["batch"]
+    entrypoint: ["/app/batch"]
+    command: ["status"]
+    environment:
+      DATABASE_URL: mysql://${MYSQL_USER:-app}:${MYSQL_PASSWORD:-app}@mysql:3306/${MYSQL_DATABASE:-app}
+      DB_MAX_CONNECTIONS: "10"
+      RUST_LOG: info,batch=debug
+    depends_on:
+      mysql:
+        condition: service_healthy
+
   frontend:
     image: voiler-frontend:local
     build: ./frontend

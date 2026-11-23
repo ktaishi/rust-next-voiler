@@ -11,6 +11,7 @@ argument-hint: <NNNN-slug>
 1. **Repository ↔ MySQL**: `backend/tests/*_test.rs` に `#![cfg(feature = "integration")]` と `#[sqlx::test(migrations = "./migrations")]` で追加。
    テストごとに使い捨て DB が作られるので相互依存させない
    - 実行: `make test-integration`
+   - バッチは `backend/crates/batch/tests/` に: 正常系 / 冪等 (2 回実行) / 途中失敗 (トリガで注入) / resume / 多重起動
 2. **Frontend ↔ API ↔ DB (E2E)**: `frontend/e2e/*.spec.ts` に AC ベースのシナリオを追加
    - リロード後も状態が保持されること (永続化) を確認する
    - 他テストのデータに依存しないよう、一意なタイトル (`Date.now()`) を使う

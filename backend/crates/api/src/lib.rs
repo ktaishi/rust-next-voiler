@@ -1,33 +1,26 @@
-//! API サーバのエントリポイント。
+//! HTTP API サーバ。
 //!
-//! レイヤ構成: `handlers`(HTTP) -> `domain`(ビジネスルール) -> `repository`(永続化)
+//! レイヤ構成: `handlers`(HTTP) -> `app_core::domain`(ビジネスルール) -> `app_core::repository`(永続化)
 
 pub mod config;
-pub mod domain;
 pub mod error;
 pub mod extract;
 pub mod handlers;
-pub mod repository;
 pub mod routes;
 pub mod state;
-pub mod telemetry;
 
 use std::sync::Arc;
 
-use sqlx::mysql::MySqlPoolOptions;
+use app_core::{db, repository::MySqlTodoRepository};
 use tokio::net::TcpListener;
 
-use crate::{config::Config, repository::MySqlTodoRepository, state::AppState};
+use crate::{config::Config, state::AppState};
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
-    let pool = MySqlPoolOptions::new()
-        .max_connections(config.db_max_connections)
-        .acquire_timeout(std::time::Duration::from_secs(5))
-        .connect(&config.database_url)
-        .await?;
+    let pool = db::connect(&config.database_url, config.db_max_connections).await?;
 
     if config.run_migrations {
-        sqlx::migrate!("./migrations").run(&pool).await?;
+        db::MIGRATOR.run(&pool).await?;
         tracing::info!("migrations applied");
     }
 

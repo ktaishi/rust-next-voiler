@@ -23,3 +23,23 @@
 | completed | BOOLEAN | NO | FALSE | |
 | created_at | DATETIME(6) | NO | CURRENT_TIMESTAMP(6) | |
 | updated_at | DATETIME(6) | NO | ON UPDATE | |
+
+インデックス: `idx_todos_completed_updated (completed, updated_at, id)` — アーカイブ対象の抽出用
+
+### todos_archive
+`todos` と同じ列 + `archived_at DATETIME(6)` (INDEX)。主キー `id` が同じなので `INSERT IGNORE` で冪等に移動できる。
+
+### batch_jobs
+バッチの実行履歴。
+| カラム | 型 | 説明 |
+|---|---|---|
+| id | BINARY(16) PK | 実行 ID (UUID v7) |
+| job_name | VARCHAR(64) | ジョブ名 |
+| status | ENUM('running','succeeded','failed') | |
+| params | JSON | 実行パラメータ (再開時に復元) |
+| processed | BIGINT UNSIGNED | 処理済み件数 |
+| checkpoint | VARCHAR(255) NULL | ジョブ固有の再開位置 |
+| error | TEXT NULL | 失敗理由 |
+| started_at / finished_at / updated_at | DATETIME(6) | |
+
+インデックス: `idx_batch_jobs_name_started (job_name, started_at)`

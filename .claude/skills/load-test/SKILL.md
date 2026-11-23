@@ -15,4 +15,6 @@ argument-hint: <NNNN-slug> [smoke|load|stress|spike]
 4. `docs/templates/load-test-report.md` から `docs/features/<slug>/load-test-report.md` を作成し結果を記入
 5. 閾値未達なら: スロークエリ (EXPLAIN), N+1, コネクションプール (`DB_MAX_CONNECTIONS`), インデックスを調査し対策案を書く。
    閾値を緩めるのは最終手段で、必ずユーザーに相談する
-6. 注意: ローカル結果は参考値。本番相当の判定は stg 環境で `loadtest.yml` ワークフローを使う
+6. バッチを追加・変更した場合は `make batch-bench` (必要なら `BENCH_ROWS` を調整) で処理時間を計測し、
+   バッチ実行中に k6 を同時に流してオンライン API への影響 (p95/p99) もレポートに記録する
+7. 注意: ローカル結果は参考値。本番相当の判定は stg 環境で `loadtest.yml` ワークフローを使う

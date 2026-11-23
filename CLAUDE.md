@@ -5,7 +5,11 @@
 
 ## 構成
 ```
-backend/    Rust (axum 0.8, sqlx 0.8 MySQL). handlers -> domain -> repository の一方向依存
+backend/    Rust workspace
+  crates/core/   app-core: domain, repository, DB 接続 (API/バッチ共有。axum に依存しない)
+  crates/api/    HTTP API (axum 0.8)。handlers -> core::domain -> core::repository の一方向依存
+  crates/batch/  バッチ CLI (JobRunner: ロック・履歴・チェックポイント・再試行)
+  migrations/    共有マイグレーション
 frontend/   Next.js 16 App Router + TypeScript. Vitest (単体) / Playwright (E2E: e2e/)
 loadtest/   k6 シナリオ。閾値は loadtest/lib/config.js
 docs/       要件・設計・ADR・OpenAPI・テンプレート
@@ -21,6 +25,8 @@ docs/       要件・設計・ADR・OpenAPI・テンプレート
 | フルスタック起動 | `make up` / 停止 `make down` |
 | E2E | `make up && make e2e` |
 | 負荷試験 | `make loadtest PROFILE=smoke\|load\|stress\|spike` |
+| バッチ実行 / 履歴 | `make batch ARGS="..."` / `make batch-status` |
+| バッチ性能計測 | `make batch-bench BENCH_ROWS=1000000` |
 
 ## 開発フロー (スキル)
 `/feature <説明>` で一気通貫。個別: `/requirements` → `/design` → `/implement` → `/test` →
@@ -45,6 +51,12 @@ docs/       要件・設計・ADR・OpenAPI・テンプレート
 - 一覧 API は keyset (cursor) ページネーション。OFFSET は使わない
 - テスト用の実装 (InMemory 等) は `tests/common/` に置き、本番コードに含めない
 - `cargo clippy -D warnings` が通ること
+- エラー: core は `AppError` (HTTP 非依存)、api は `ApiError` で HTTP に変換
+### Batch
+- 新規ジョブは `docs/process/batch-operations.md` の「新しいジョブの追加」に従う
+- 1 チャンク = 1 トランザクション。全件をメモリに載せない。OFFSET で走査しない
+- 一時エラーのみ `retry()`。チャンク処理は再実行しても安全 (冪等) に書く
+- バルク SQL の行数は `chunk::rows_per_statement` でプレースホルダ上限内に収める
 ### Frontend
 - API 呼び出しは `src/lib/api.ts` 経由のみ。ブラウザ → `/api/*` (Route Handler `src/lib/proxy.ts`) → backend
 - backend の到達先は実行時環境変数 `API_ORIGIN`。ビルド時に URL を焼き込まない
@@ -53,9 +65,9 @@ docs/       要件・設計・ADR・OpenAPI・テンプレート
 
 ## 新しいリソースを追加するとき (例: users)
 1. `backend/migrations/<ts>_create_users.sql`
-2. `backend/src/domain/user.rs` (型 + バリデーション + 単体テスト)
-3. `backend/src/repository/{mod,mysql,memory}.rs` に trait と実装
-4. `backend/src/handlers/users.rs`, `routes.rs` に登録, `state.rs` に repo 追加
-5. `backend/tests/` に HTTP テストと `integration` feature の結合テスト
+2. `backend/crates/core/src/domain/user.rs` (型 + バリデーション + 単体テスト)
+3. `backend/crates/core/src/repository/{mod,mysql}.rs` に trait と MySQL 実装、結合テストは `crates/core/tests/`
+4. `backend/crates/api/src/handlers/users.rs`, `routes.rs` に登録, `state.rs` に repo 追加
+5. `backend/crates/api/tests/` に HTTP テスト (InMemory 実装は `tests/common/`)
 6. `docs/api/openapi.yaml`, `frontend/src/lib/api.ts`, 画面, Vitest, Playwright
 7. `loadtest/scenarios/` にシナリオ

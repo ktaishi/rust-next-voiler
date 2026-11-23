@@ -5,7 +5,7 @@ use uuid::Uuid;
 use super::TodoRepository;
 use crate::{
     domain::{NewTodo, Page, Todo, TodoPatch},
-    error::{AppError, AppResult},
+    AppError, AppResult,
 };
 
 #[derive(Clone)]

@@ -1,22 +1,17 @@
+use app_core::AppError;
 use axum::{
+    extract::rejection::{JsonRejection, PathRejection, QueryRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
 use serde::Serialize;
 
-/// アプリケーション共通エラー。HTTP レスポンスへの変換規約はここに集約する。
-#[derive(Debug, thiserror::Error)]
-pub enum AppError {
-    #[error("validation error: {0}")]
-    Validation(String),
-    #[error("resource not found")]
-    NotFound,
-    #[error(transparent)]
-    Database(#[from] sqlx::Error),
-    #[error(transparent)]
-    Internal(#[from] anyhow::Error),
-}
+/// HTTP 用エラー。`AppError` → HTTP ステータス/JSON の変換規約をここに集約する。
+#[derive(Debug)]
+pub struct ApiError(pub AppError);
+
+pub type ApiResult<T> = Result<T, ApiError>;
 
 #[derive(Debug, Serialize)]
 pub struct ErrorBody {
@@ -24,11 +19,32 @@ pub struct ErrorBody {
     pub message: String,
 }
 
-impl IntoResponse for AppError {
+impl From<AppError> for ApiError {
+    fn from(e: AppError) -> Self {
+        Self(e)
+    }
+}
+impl From<JsonRejection> for ApiError {
+    fn from(r: JsonRejection) -> Self {
+        Self(AppError::Validation(r.body_text()))
+    }
+}
+impl From<PathRejection> for ApiError {
+    fn from(r: PathRejection) -> Self {
+        Self(AppError::Validation(r.body_text()))
+    }
+}
+impl From<QueryRejection> for ApiError {
+    fn from(r: QueryRejection) -> Self {
+        Self(AppError::Validation(r.body_text()))
+    }
+}
+
+impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, code, message) = match &self {
+        let (status, code, message) = match &self.0 {
             AppError::Validation(m) => (StatusCode::BAD_REQUEST, "VALIDATION_ERROR", m.clone()),
-            AppError::NotFound => (StatusCode::NOT_FOUND, "NOT_FOUND", self.to_string()),
+            AppError::NotFound => (StatusCode::NOT_FOUND, "NOT_FOUND", self.0.to_string()),
             AppError::Database(e) => {
                 tracing::error!(error = ?e, "database error");
                 (
@@ -49,5 +65,3 @@ impl IntoResponse for AppError {
         (status, Json(ErrorBody { code, message })).into_response()
     }
 }
-
-pub type AppResult<T> = Result<T, AppError>;
